@@ -12,6 +12,67 @@ from social.backends.oauth import BaseOAuth2
 from social.exceptions import AuthTokenRevoked, AuthException
 
 
+class VKAccessTokenAPI(BaseOAuth2):
+    """VKAccessTokenAPI authentication backend"""
+    name = 'vkauthtoken'
+    ID_KEY = 'uid'
+    ACCESS_TOKEN_URL = ''
+    ACCESS_TOKEN_METHOD = 'GET'
+    BASE_URL = 'https://api.vk.com/method/'
+    EXTRA_DATA = [
+        ('id', 'id'),
+        ('expires_in', 'expires'),
+    ]
+    
+    def get_user_details(self, response):
+        """Return user details from VK.com account"""
+        fullname, first_name, last_name = self.get_user_names(
+            first_name=response.get('first_name'),
+            last_name=response.get('last_name')
+        )
+        return {'username': response.get('screen_name'),
+                'email': response.get('email', ''),
+                'fullname': fullname,
+                'first_name': first_name,
+                'last_name': last_name}
+
+    def user_data(self, access_token, *args, **kwargs):
+        """Loads user data from service"""
+
+        request_data = ['first_name', 'last_name', 'screen_name',
+                        'photo_200'] + self.setting('EXTRA_DATA', [])
+        fields = ','.join(set(request_data))
+        vk_user_id = kwargs.get('vk_user_id', None)
+        
+        data_params = {
+                'access_token': access_token,
+                'uids': vk_user_id,
+                'fields': fields,
+            }
+        #method = 'account.getProfileInfo'
+        method = 'users.get'
+        url = 'https://api.vk.com/method/' + method
+
+        try:
+            data = self.get_json(url, params=data_params)
+        except (TypeError, KeyError, IOError, ValueError, IndexError):
+            data = None
+
+        if data and data.get('error'):
+            error = data['error']
+            msg = error.get('error_msg', 'Unknown error')
+            if error.get('error_code') == 5:
+                raise AuthTokenRevoked(self, msg)
+            else:
+                raise AuthException(self, msg)
+
+        if data:
+            data = data.get('response')[0]
+            data['user_photo'] = data.get('photo_200')  # Backward compatibility
+        
+        return data or {}
+
+
 class VKontakteOpenAPI(BaseAuth):
     """VK.COM OpenAPI authentication backend"""
     name = 'vk-openapi'
